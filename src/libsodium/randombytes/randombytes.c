@@ -24,7 +24,7 @@
 /* C++Builder defines a "random" macro */
 #undef random
 
-static const randombytes_implementation *implementation;
+static const randombytes_implementation *random_implementation;
 
 #ifndef RANDOMBYTES_DEFAULT_IMPLEMENTATION
 # ifdef __EMSCRIPTEN__
@@ -44,41 +44,42 @@ javascript_implementation_name(void)
 static uint32_t
 javascript_random(void)
 {
-    return EM_ASM_INT_V({
-        return Module.getRandomValue();
-    });
+    /* return EM_ASM_INT_V({ */
+    /*     return Module.getRandomValue(); */
+    /* }); */
+    return randombytes_js();
 }
 
 static void
-javascript_stir(void)
+javascript_stir(void) 
 {
-    EM_ASM({
-        if (Module.getRandomValue === undefined) {
-            try {
-                var window_ = 'object' === typeof window ? window : self;
-                var crypto_ = typeof window_.crypto !== 'undefined' ? window_.crypto : window_.msCrypto;
-                var randomValuesStandard = function() {
-                    var buf = new Uint32Array(1);
-                    crypto_.getRandomValues(buf);
-                    return buf[0] >>> 0;
-                };
-                randomValuesStandard();
-                Module.getRandomValue = randomValuesStandard;
-            } catch (e) {
-                try {
-                    var crypto = require('crypto');
-                    var randomValueNodeJS = function() {
-                        var buf = crypto['randomBytes'](4);
-                        return (buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]) >>> 0;
-                    };
-                    randomValueNodeJS();
-                    Module.getRandomValue = randomValueNodeJS;
-                } catch (e) {
-                    throw 'No secure random number generator found';
-                }
-            }
-        }
-    });
+/*     EM_ASM({ */
+/*         if (Module.getRandomValue === undefined) { */
+/*             try { */
+/*                 var window_ = 'object' === typeof window ? window : self; */
+/*                 var crypto_ = typeof window_.crypto !== 'undefined' ? window_.crypto : window_.msCrypto; */
+/*                 var randomValuesStandard = function() { */
+/*                     var buf = new Uint32Array(1); */
+/*                     crypto_.getRandomValues(buf); */
+/*                     return buf[0] >>> 0; */
+/*                 }; */
+/*                 randomValuesStandard(); */
+/*                 Module.getRandomValue = randomValuesStandard; */
+/*             } catch (e) { */
+/*                 try { */
+/*                     var crypto = require('crypto'); */
+/*                     var randomValueNodeJS = function() { */
+/*                         var buf = crypto['randomBytes'](4); */
+/*                         return (buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]) >>> 0; */
+/*                     }; */
+/*                     randomValueNodeJS(); */
+/*                     Module.getRandomValue = randomValueNodeJS; */
+/*                 } catch (e) { */
+/*                     throw 'No secure random number generator found'; */
+/*                 } */
+/*             } */
+/*         } */
+/*     }); */
 }
 
 static void
@@ -96,16 +97,16 @@ javascript_buf(void * const buf, const size_t size)
 static void
 randombytes_init_if_needed(void)
 {
-    if (implementation == NULL) {
+    if (random_implementation == NULL) {
 #ifdef __EMSCRIPTEN__
         static randombytes_implementation javascript_implementation;
         javascript_implementation.implementation_name = javascript_implementation_name;
         javascript_implementation.random = javascript_random;
         javascript_implementation.stir = javascript_stir;
         javascript_implementation.buf = javascript_buf;
-        implementation = &javascript_implementation;
+        random_implementation = &javascript_implementation;
 #else
-        implementation = RANDOMBYTES_DEFAULT_IMPLEMENTATION;
+        random_implementation = RANDOMBYTES_DEFAULT_IMPLEMENTATION;
 #endif
         randombytes_stir();
     }
@@ -114,7 +115,7 @@ randombytes_init_if_needed(void)
 int
 randombytes_set_implementation(const randombytes_implementation *impl)
 {
-    implementation = impl;
+    random_implementation = impl;
     return 0;
 }
 
@@ -122,22 +123,22 @@ const char *
 randombytes_implementation_name(void)
 {
     randombytes_init_if_needed();
-    return implementation->implementation_name();
+    return random_implementation->implementation_name();
 }
 
 uint32_t
 randombytes_random(void)
 {
     randombytes_init_if_needed();
-    return implementation->random();
+    return random_implementation->random();
 }
 
 void
 randombytes_stir(void)
 {
     randombytes_init_if_needed();
-    if (implementation->stir != NULL) {
-        implementation->stir();
+    if (random_implementation->stir != NULL) {
+        random_implementation->stir();
     }
 }
 
@@ -148,8 +149,8 @@ randombytes_uniform(const uint32_t upper_bound)
     uint32_t r;
 
     randombytes_init_if_needed();
-    if (implementation->uniform != NULL) {
-        return implementation->uniform(upper_bound);
+    if (random_implementation->uniform != NULL) {
+        return random_implementation->uniform(upper_bound);
     }
     if (upper_bound < 2) {
         return 0;
@@ -169,7 +170,7 @@ randombytes_buf(void * const buf, const size_t size)
 {
     randombytes_init_if_needed();
     if (size > (size_t) 0U) {
-        implementation->buf(buf, size);
+        random_implementation->buf(buf, size);
     }
 }
 
@@ -201,8 +202,8 @@ randombytes_seedbytes(void)
 int
 randombytes_close(void)
 {
-    if (implementation != NULL && implementation->close != NULL) {
-        return implementation->close();
+    if (random_implementation != NULL && random_implementation->close != NULL) {
+        return random_implementation->close();
     }
     return 0;
 }
