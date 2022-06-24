@@ -37,7 +37,7 @@ sodium_init(void)
         return 1;
     }
     _sodium_runtime_get_cpu_features();
-    randombytes_stir();
+    /* randombytes_stir(); */
     _sodium_alloc_init();
     _crypto_pwhash_argon2_pick_best_implementation();
     _crypto_generichash_blake2b_pick_best_implementation();

@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+extern uint32_t randombytes_js(void);
+
 typedef struct randombytes_implementation {
     const char *(*implementation_name)(void); /* required */
     uint32_t    (*random)(void);              /* required */
