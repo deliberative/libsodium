@@ -20,23 +20,23 @@
 #ifdef HAVE_SYS_RANDOM_H
 # include <sys/random.h>
 #endif
-#ifdef __linux__
-# ifdef HAVE_GETRANDOM
-#  define HAVE_LINUX_COMPATIBLE_GETRANDOM
-# else
-#  include <sys/syscall.h>
-#  if defined(SYS_getrandom) && defined(__NR_getrandom)
-#   define getrandom(B, S, F) syscall(SYS_getrandom, (B), (int) (S), (F))
-#   define HAVE_LINUX_COMPATIBLE_GETRANDOM
-#  endif
-# endif
-#elif defined(__FreeBSD__) || defined(__DragonFly__)
-# include <sys/param.h>
-# if (defined(__FreeBSD_version) && __FreeBSD_version >= 1200000) || \
-     (defined(__DragonFly_version) && __DragonFly_version >= 500700)
-#  define HAVE_LINUX_COMPATIBLE_GETRANDOM
-# endif
-#endif
+/* #ifdef __linux__ */
+/* # ifdef HAVE_GETRANDOM */
+/* #  define HAVE_LINUX_COMPATIBLE_GETRANDOM */
+/* # else */
+/* #  include <sys/syscall.h> */
+/* #  if defined(SYS_getrandom) && defined(__NR_getrandom) */
+/* #   define getrandom(B, S, F) syscall(SYS_getrandom, (B), (int) (S), (F)) */
+/* #   define HAVE_LINUX_COMPATIBLE_GETRANDOM */
+/* #  endif */
+/* # endif */
+/* #elif defined(__FreeBSD__) || defined(__DragonFly__) */
+/* # include <sys/param.h> */
+/* # if (defined(__FreeBSD_version) && __FreeBSD_version >= 1200000) || \ */
+/*      (defined(__DragonFly_version) && __DragonFly_version >= 500700) */
+/* #  define HAVE_LINUX_COMPATIBLE_GETRANDOM */
+/* # endif */
+/* #endif */
 #if !defined(NO_BLOCKING_RANDOM_POLL) && defined(__linux__)
 # define BLOCK_ON_DEV_RANDOM
 #endif
