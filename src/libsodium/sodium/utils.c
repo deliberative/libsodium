@@ -124,7 +124,7 @@ _sodium_dummy_symbol_to_prevent_memzero_lto(void *const  pnt,
 void
 sodium_memzero(void * const pnt, const size_t len)
 {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__CRT_INLINE)
     SecureZeroMemory(pnt, len);
 #elif defined(HAVE_MEMSET_S)
     if (len > 0U && memset_s(pnt, (rsize_t) len, 0, (rsize_t) len) != 0) {
@@ -132,6 +132,8 @@ sodium_memzero(void * const pnt, const size_t len)
     }
 #elif defined(HAVE_EXPLICIT_BZERO)
     explicit_bzero(pnt, len);
+#elif defined(HAVE_MEMSET_EXPLICIT)
+    memset_explicit(pnt, 0, len);
 #elif defined(HAVE_EXPLICIT_MEMSET)
     explicit_memset(pnt, 0, len);
 #elif HAVE_WEAK_SYMBOLS
