@@ -38,6 +38,9 @@
 #  define HAVE_LINUX_COMPATIBLE_GETRANDOM
 # endif
 #endif
+#ifdef HAVE_COMMONCRYPTO_COMMONRANDOM_H
+# include <CommonCrypto/CommonRandom.h>
+#endif
 #if !defined(NO_BLOCKING_RANDOM_POLL) && defined(__linux__)
 # define BLOCK_ON_DEV_RANDOM
 #endif
@@ -93,6 +96,10 @@ BOOLEAN NTAPI RtlGenRandom(PVOID RandomBuffer, ULONG RandomBufferLength);
 # endif
 #endif
 
+#if !defined(TLS) && !defined(__STDC_NO_THREADS__) && \
+    defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+# define TLS _Thread_local
+#endif
 #ifndef TLS
 # ifdef _WIN32
 #  define TLS __declspec(thread)
@@ -175,7 +182,18 @@ randombytes_internal_random_init(void)
 
 #else /* _WIN32 */
 
-# ifdef HAVE_GETENTROPY
+# ifdef HAVE_COMMONCRYPTO_COMMONRANDOM_H
+static int
+randombytes_getentropy(void * const buf, const size_t size)
+{
+    if (CCRandomGenerateBytes(buf, size) != kCCSuccess) {
+        return -1;
+    }
+    return 0;
+}
+
+# elif defined(HAVE_GETENTROPY)
+
 static int
 _randombytes_getentropy(void * const buf, const size_t size)
 {

@@ -19,6 +19,19 @@
 #define __vectorcall
 #endif
 
+#ifdef __clang__
+#pragma clang attribute push(__attribute__((target("neon,crypto,aes"))), apply_to = function)
+#elif defined(__GNUC__)
+#pragma GCC target("+simd+crypto")
+#endif
+
+#ifndef __ARM_FEATURE_CRYPTO
+#define __ARM_FEATURE_CRYPTO 1
+#endif
+#ifndef __ARM_FEATURE_AES
+#define __ARM_FEATURE_AES 1
+#endif
+
 #include <arm_neon.h>
 
 #define ABYTES    crypto_aead_aes256gcm_ABYTES
@@ -30,13 +43,13 @@
 
 typedef uint64x2_t BlockVec;
 
-#define LOAD128(a)     vld1q_u64((const void *) a)
-#define STORE128(a, b) vst1q_u64(((void *) a), (b))
-#define AES_ENCRYPT(block_vec, rkey) \
+#define LOAD128(a)     vld1q_u64((const uint64_t *) (const void *) (a))
+#define STORE128(a, b) vst1q_u64((uint64_t *) (void *) (a), (b))
+#define AES_XENCRYPT(block_vec, rkey) \
     vreinterpretq_u64_u8(            \
-        veorq_u8(vaesmcq_u8(vaeseq_u8(vreinterpretq_u8_u64(block_vec), vmovq_n_u8(0))), rkey))
-#define AES_ENCRYPTLAST(block_vec, rkey) \
-    vreinterpretq_u64_u8(veorq_u8(vaeseq_u8(vreinterpretq_u8_u64(block_vec), vmovq_n_u8(0)), rkey))
+        vaesmcq_u8(vaeseq_u8(vreinterpretq_u8_u64(block_vec), rkey)))
+#define AES_XENCRYPTLAST(block_vec, rkey) \
+    vreinterpretq_u64_u8(vaeseq_u8(vreinterpretq_u8_u64(block_vec), rkey))
 #define XOR128(a, b)  veorq_u64((a), (b))
 #define AND128(a, b)  vandq_u64((a), (b))
 #define OR128(a, b)   vorrq_u64((a), (b))
@@ -148,11 +161,12 @@ encrypt(const State *st, unsigned char dst[16], const unsigned char src[16])
 
     size_t i;
 
-    t = XOR128(LOAD128(src), st->rkeys[0]);
-    for (i = 1; i < ROUNDS; i++) {
-        t = AES_ENCRYPT(t, st->rkeys[i]);
+    t = AES_XENCRYPT(LOAD128(src), st->rkeys[0]);
+    for (i = 1; i < ROUNDS - 1; i++) {
+        t = AES_XENCRYPT(t, st->rkeys[i]);
     }
-    t = AES_ENCRYPTLAST(t, st->rkeys[ROUNDS]);
+    t = AES_XENCRYPTLAST(t, st->rkeys[i]);
+    t = XOR128(t, st->rkeys[ROUNDS]);
     STORE128(dst, t);
 }
 
@@ -165,12 +179,12 @@ static inline void __vectorcall encrypt_xor_block(const State *st, unsigned char
     BlockVec ts;
     size_t   i;
 
-    ts = XOR128(counter, st->rkeys[0]);
-    for (i = 1; i < ROUNDS; i++) {
-        ts = AES_ENCRYPT(ts, st->rkeys[i]);
+    ts = AES_XENCRYPT(counter, st->rkeys[0]);
+    for (i = 1; i < ROUNDS - 1; i++) {
+        ts = AES_XENCRYPT(ts, st->rkeys[i]);
     }
-    ts = AES_ENCRYPTLAST(ts, st->rkeys[i]);
-    ts = XOR128(ts, LOAD128(src));
+    ts = AES_XENCRYPTLAST(ts, st->rkeys[i]);
+    ts = XOR128(ts, XOR128(st->rkeys[ROUNDS], LOAD128(src)));
     STORE128(dst, ts);
 }
 
@@ -185,16 +199,16 @@ static inline void __vectorcall encrypt_xor_wide(const State        *st,
     size_t   i, j;
 
     for (j = 0; j < PARALLEL_BLOCKS; j++) {
-        ts[j] = XOR128(counters[j], st->rkeys[0]);
+        ts[j] = AES_XENCRYPT(counters[j], st->rkeys[0]);
     }
-    for (i = 1; i < ROUNDS; i++) {
+    for (i = 1; i < ROUNDS - 1; i++) {
         for (j = 0; j < PARALLEL_BLOCKS; j++) {
-            ts[j] = AES_ENCRYPT(ts[j], st->rkeys[i]);
+            ts[j] = AES_XENCRYPT(ts[j], st->rkeys[i]);
         }
     }
     for (j = 0; j < PARALLEL_BLOCKS; j++) {
-        ts[j] = AES_ENCRYPTLAST(ts[j], st->rkeys[i]);
-        ts[j] = XOR128(ts[j], LOAD128(&src[16 * j]));
+        ts[j] = AES_XENCRYPTLAST(ts[j], st->rkeys[i]);
+        ts[j] = XOR128(ts[j], XOR128(st->rkeys[ROUNDS], LOAD128(&src[16 * j])));
     }
     for (j = 0; j < PARALLEL_BLOCKS; j++) {
         STORE128(&dst[16 * j], ts[j]);
@@ -616,7 +630,7 @@ aes_gcm_decrypt_generic(const State *st, GHash *sth, unsigned char mac[ABYTES], 
 
     /* 2*PARALLEL_BLOCKS aggregation */
 
-    for (; i + 2 * PARALLEL_BLOCKS * 16 <= src_len; i += 2 * PARALLEL_BLOCKS * 16) {
+    while (i + 2 * PARALLEL_BLOCKS * 16 <= src_len) {
         counter = incr_counters(rev_counters, counter, PARALLEL_BLOCKS);
 
         u = gh_update0(sth, src + i, st->hx[2 * PARALLEL_BLOCKS - 1 - 0]);
@@ -628,13 +642,14 @@ aes_gcm_decrypt_generic(const State *st, GHash *sth, unsigned char mac[ABYTES], 
 
         counter = incr_counters(rev_counters, counter, PARALLEL_BLOCKS);
 
+        i += PARALLEL_BLOCKS * 16;
         for (j = 0; j < PARALLEL_BLOCKS; j += 1) {
             gh_update(&u, src + i + j * 16, st->hx[PARALLEL_BLOCKS - 1 - j]);
         }
         sth->acc = gcm_reduce(u);
 
-        encrypt_xor_wide(st, dst + i + PARALLEL_BLOCKS * 16, src + i + PARALLEL_BLOCKS * 16,
-                         rev_counters);
+        encrypt_xor_wide(st, dst + i, src + i, rev_counters);
+        i += PARALLEL_BLOCKS * 16;
     }
 
     /* PARALLEL_BLOCKS aggregation */
@@ -1010,5 +1025,9 @@ crypto_aead_aes256gcm_is_available(void)
 {
     return sodium_runtime_has_armcrypto();
 }
+
+#ifdef __clang__
+#pragma clang attribute pop
+#endif
 
 #endif

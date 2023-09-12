@@ -17,9 +17,7 @@
 #if defined(HAVE_TMMINTRIN_H) && defined(HAVE_WMMINTRIN_H)
 
 #ifdef __GNUC__
-#pragma GCC target("ssse3")
-#pragma GCC target("aes")
-#pragma GCC target("pclmul")
+#pragma GCC target("avx,aes,pclmul")
 #endif
 
 #if !defined(_MSC_VER) || _MSC_VER < 1800
@@ -444,6 +442,11 @@ aes_gcm_encrypt_generic(const State *st, GHash *sth, unsigned char mac[ABYTES], 
             counter = incr_counters(rev_counters, counter, PARALLEL_BLOCKS);
             encrypt_xor_wide(st, dst + i, src + i, rev_counters);
 
+            PREFETCH_READ(src + i + PARALLEL_BLOCKS * 16);
+#if PARALLEL_BLOCKS >= 64 / 16
+            PREFETCH_READ(src + i + PARALLEL_BLOCKS * 16 + 64);
+#endif
+
             pi = i - PARALLEL_BLOCKS * 16;
             u  = gh_update0(sth, dst + pi, st->hx[2 * PARALLEL_BLOCKS - 1 - 0]);
             for (j = 1; j < PARALLEL_BLOCKS; j += 1) {
@@ -454,6 +457,10 @@ aes_gcm_encrypt_generic(const State *st, GHash *sth, unsigned char mac[ABYTES], 
             encrypt_xor_wide(st, dst + i + PARALLEL_BLOCKS * 16, src + i + PARALLEL_BLOCKS * 16,
                              rev_counters);
 
+            PREFETCH_READ(src + i + 2 * PARALLEL_BLOCKS * 16);
+#if PARALLEL_BLOCKS >= 64 / 16
+            PREFETCH_READ(src + i + 2 * PARALLEL_BLOCKS * 16 + 64);
+#endif
             pi = i;
             for (j = 0; j < PARALLEL_BLOCKS; j += 1) {
                 gh_update(&u, dst + pi + j * 16, st->hx[PARALLEL_BLOCKS - 1 - j]);
@@ -603,7 +610,7 @@ aes_gcm_decrypt_generic(const State *st, GHash *sth, unsigned char mac[ABYTES], 
 
     /* 2*PARALLEL_BLOCKS aggregation */
 
-    for (; i + 2 * PARALLEL_BLOCKS * 16 <= src_len; i += 2 * PARALLEL_BLOCKS * 16) {
+    while (i + 2 * PARALLEL_BLOCKS * 16 <= src_len) {
         counter = incr_counters(rev_counters, counter, PARALLEL_BLOCKS);
 
         u = gh_update0(sth, src + i, st->hx[2 * PARALLEL_BLOCKS - 1 - 0]);
@@ -615,13 +622,14 @@ aes_gcm_decrypt_generic(const State *st, GHash *sth, unsigned char mac[ABYTES], 
 
         counter = incr_counters(rev_counters, counter, PARALLEL_BLOCKS);
 
+        i += PARALLEL_BLOCKS * 16;
         for (j = 0; j < PARALLEL_BLOCKS; j += 1) {
             gh_update(&u, src + i + j * 16, st->hx[PARALLEL_BLOCKS - 1 - j]);
         }
         sth->acc = gcm_reduce(u);
 
-        encrypt_xor_wide(st, dst + i + PARALLEL_BLOCKS * 16, src + i + PARALLEL_BLOCKS * 16,
-                         rev_counters);
+        encrypt_xor_wide(st, dst + i, src + i, rev_counters);
+        i += PARALLEL_BLOCKS * 16;
     }
 
     /* PARALLEL_BLOCKS aggregation */
@@ -995,7 +1003,7 @@ crypto_aead_aes256gcm_decrypt(unsigned char *m, unsigned long long *mlen_p, unsi
 int
 crypto_aead_aes256gcm_is_available(void)
 {
-    return sodium_runtime_has_pclmul() & sodium_runtime_has_aesni();
+    return sodium_runtime_has_pclmul() & sodium_runtime_has_aesni() & sodium_runtime_has_avx();
 }
 
 #endif
